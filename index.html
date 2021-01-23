@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Pitch detector</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    * {
+      vertical-align: top;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="canvas" width="900" height="700" style="border:1px solid #000000;"></canvas>
+  <canvas id="note-display" width="400" height="400" style="border:1px solid #000000;"></canvas>
+  <script src="https://unpkg.com/ml5@latest/dist/ml5.min.js"></script>
+  <script>
+    const noteDisplayEl = document.getElementById("note-display");
+    const noteCtx = noteDisplayEl.getContext("2d");
+
+    let t0 = Date.now();
+    let tmin = t0;
+    let tmax = t0 + 10 * 2000;
+
+    let measurements = [
+      /* { t: x, freq: y } */
+    ];
+    let ms = measurements.slice();
+
+    navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      .then(stream => {
+
+        const audioContext = new AudioContext();
+        //const MicStream = audioContext.createMediaStreamSource(stream);
+
+        // const MicStream = MicStream
+        const pitch = ml5.pitchDetection(
+          "./crepe/",
+          audioContext,
+          stream,
+          modelLoaded
+        );
+
+        // When the model is loaded
+        function modelLoaded() {
+          console.log("Model Loaded!");
+
+          getPitch(pitch);
+        }
+
+      });
+
+    function getPitch(pitch) {
+      pitch.getPitch(function (err, frequency) {
+        const sample = { t: Date.now(), freq: frequency };
+        measurements.push(sample);
+        ms.push(sample);
+
+        getPitch(pitch);
+      });
+    }
+
+    function freqToMidi(freq) {
+      return 12 * Math.log2(freq / 440) + 69;
+    }
+
+    function midiNoteName(midi) {
+      const octave = Math.floor(midi / 12) - 1;
+      const note = [
+        "C",
+        "C#",
+        "D",
+        "D#",
+        "E",
+        "F",
+        "F#",
+        "G",
+        "G#",
+        "A",
+        "A#",
+        "B"
+      ][Math.floor(midi % 12)];
+      return `${note}${octave}`;
+    }
+
+    function projectTime(t) {
+      const normalized = (t - tmin) / (tmax - tmin);
+      return normalized * canvas.width;
+    }
+
+    // values outside of these two frequencies are not detected properly
+    // (tested with a tone generator)
+    const midiMin = Math.floor(freqToMidi(75));
+    const midiMax = Math.ceil(freqToMidi(2000));
+
+    const evenColor = '#dddddd';
+    const oddColor = '#bbbbbb';
+
+    function projectMidi(midiNote) {
+      const fraction = (midiNote - midiMin) / (midiMax - midiMin);
+      return canvas.height * (1 - fraction);
+    }
+
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    ctx.strokeStyle = '#ff0000';
+
+    function drawNoteStripes() {
+      const barHeight = Math.abs(projectMidi(1) - projectMidi(0));
+      for (let midi = midiMin; midi <= midiMax; midi++) {
+        // bar
+        ctx.fillStyle = (midi % 2 === 0) ? evenColor : oddColor;
+        ctx.fillRect(0, projectMidi(midi) - 0.5 * barHeight, canvas.width, barHeight);
+        // label
+        ctx.fillStyle = '#000000';
+        ctx.font = "6px Arial";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "middle";
+        ctx.fillText(midiNoteName(midi), 15, projectMidi(midi));
+      }
+    }
+
+    function drawTimeLine(t) {
+      const x = projectTime(t)
+      ctx.strokeStyle = '#666';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvas.height);
+      ctx.stroke();
+    }
+
+    requestAnimationFrame(redraw);
+
+    const IGNORED_PAUSE_MS = 1000
+
+    function redraw() {
+      //console.log(`${measurements.length} samples`);
+      const now = Date.now();
+      tmin = now - 18 * 1000;
+      tmax = tmin + 20 * 1000;
+      ms = measurements.filter(({ t }) => t > tmin);
+      if (ms.length > 0) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawNoteStripes();
+        const { t, freq } = ms[0];
+        let prevWasSilent = true;
+        ctx.beginPath();
+        ctx.moveTo(projectTime(t), projectMidi(freqToMidi(freq)));
+        // we don't draw points that don't have at least one non-silent neighbor
+        // as those are not reliable measurements anyway
+        ms.slice(1).forEach(({ t, freq }, i) => {
+          // sudden changes of notes don't look good if plotted as a continuous line
+          const midiDx = () => freqToMidi(freq) - freqToMidi(ms[i].freq)
+          // in case we stop receiving updates (e.g. tab goes into background) we still want to treat it as if there was silence
+          const dt = t - ms[i].t
+          const isContinuous = () => Math.abs(midiDx()) < 4 && dt < IGNORED_PAUSE_MS
+          const currentIsSilent = freq === null
+          // I miss case expressions :'(
+          //
+          // Just, Just
+          //   dx > 3 || dt > 2s -> moveTo
+          //   _ -> lineTo
+          // Just, Nothing -> noop
+          // Nothing, Just -> moveTo
+          // Nothing, Nothing -> noop
+          if ((prevWasSilent && !currentIsSilent)
+            || (!prevWasSilent && !currentIsSilent && !isContinuous())) {
+            ctx.moveTo(projectTime(t), projectMidi(freqToMidi(freq)));
+          } else if (!prevWasSilent && !currentIsSilent && isContinuous()) {
+            ctx.lineTo(projectTime(t), projectMidi(freqToMidi(freq)));
+          }
+          prevWasSilent = currentIsSilent;
+        })
+        ctx.strokeStyle = '#f00';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        drawTimeLine(now);
+
+        const lastSample = ms[ms.length - 1]
+        if (now - lastSample.t < IGNORED_PAUSE_MS) {
+          ctx.beginPath();
+          ctx.fillStyle = '#f00';
+          ctx.arc(projectTime(now), projectMidi(freqToMidi(lastSample.freq)), 2, 0, 2 * Math.PI, false);
+          ctx.fill();
+        }
+
+        displayNote() // TODO this should not be here
+      }
+      requestAnimationFrame(redraw);
+
+      function displayNote() {
+        const w = noteDisplayEl.width;
+        const h = noteDisplayEl.height;
+        noteCtx.clearRect(0, 0, w, h);
+
+        const lastActiveSample = ms.slice().reverse().find(x => x.freq !== null)
+        if (lastActiveSample) {
+          const isActive = lastActiveSample.freq !== null && (now - lastActiveSample.t) < 300
+          const midi = freqToMidi(lastActiveSample.freq)
+          const midiWhole = Math.round(midi)
+          const rect_top = 0.7 * h
+          const rect_height = 30
+          const rect_width = 200
+          const x = w / 2 + (midi - midiWhole) * rect_width;
+
+          noteCtx.fillStyle = isActive ? '#000000' : '#888';
+          noteCtx.font = "30px Arial";
+          noteCtx.textAlign = "center";
+          noteCtx.textBaseline = "middle";
+          noteCtx.fillText(midiNoteName(midiWhole), w / 2, h / 2);
+          noteCtx.fillStyle = '#888';
+          noteCtx.font = "20px Arial";
+          noteCtx.textAlign = "right";
+          noteCtx.fillText(midiNoteName(midiWhole - 1), w / 2 - rect_width / 2 - 7, rect_top + 0.5 * rect_height);
+          noteCtx.textAlign = "left";
+          noteCtx.fillText(midiNoteName(midiWhole + 1), w / 2 + rect_width / 2 + 7, rect_top + 0.5 * rect_height);
+
+          // rect
+          noteCtx.lineWidth = 0.5;
+          noteCtx.strokeStyle = '#000000';
+          noteCtx.strokeRect(w / 2 - rect_width / 2, rect_top, rect_width, rect_height)
+          // static line
+          noteCtx.beginPath();
+          noteCtx.moveTo(w / 2, rect_top);
+          noteCtx.lineTo(w / 2, rect_top + rect_height);
+          noteCtx.stroke();
+          // line
+          noteCtx.lineWidth = 2;
+          noteCtx.beginPath();
+          noteCtx.moveTo(x, rect_top);
+          noteCtx.lineTo(x, rect_top + rect_height);
+          noteCtx.stroke();
+        }
+      }
+
+    }
+  </script>
+</body>
+
+</html>
