@@ -8,16 +8,37 @@
     * {
       vertical-align: top;
     }
+
+    #canvas {
+      display: block;
+      margin: 0 auto;
+    }
+
+    #about {
+      max-width: 60%;
+      margin: 39px auto;
+    }
   </style>
 </head>
 
 <body>
   <canvas id="canvas" width="900" height="700" style="border:1px solid #000000;"></canvas>
-  <canvas id="note-display" width="400" height="400" style="border:1px solid #000000;"></canvas>
+  <div id="about">
+    <h1>JS pitch monitor</h1>
+
+    <p>
+      Simple rendering of pitch detected through <a href="//ml5js.org/">ml5.js</a> and rendered using the <a
+        href="//developer.mozilla.org/en-US/docs/Web/API/Canvas_API">Canvas API</a>.
+    </p>
+    <p>
+      <a href="//github.com/fghibellini/pitch-detector">Github repo</a>
+    </p>
+  </div>
+  <!--<canvas id="note-display" width="400" height="400" style="border:1px solid #000000;"></canvas>-->
   <script src="https://unpkg.com/ml5@latest/dist/ml5.min.js"></script>
   <script>
-    const noteDisplayEl = document.getElementById("note-display");
-    const noteCtx = noteDisplayEl.getContext("2d");
+    // const noteDisplayEl = document.getElementById("note-display");
+    // const noteCtx = noteDisplayEl.getContext("2d");
 
     let t0 = Date.now();
     let tmin = t0;
@@ -181,21 +202,30 @@
 
         const lastSample = ms[ms.length - 1]
         if (now - lastSample.t < IGNORED_PAUSE_MS) {
+          const midi = freqToMidi(lastSample.freq)
           ctx.beginPath();
           ctx.fillStyle = '#f00';
-          ctx.arc(projectTime(now), projectMidi(freqToMidi(lastSample.freq)), 2, 0, 2 * Math.PI, false);
+          ctx.arc(projectTime(now), projectMidi(midi), 2, 0, 2 * Math.PI, false);
           ctx.fill();
+
+          const midiWhole = Math.round(midi)
+          ctx.fillStyle = '#777';
+          ctx.font = "20px Arial";
+          ctx.textAlign = "left";
+          ctx.textBaseline = "middle";
+          ctx.fillText(midiNoteName(midiWhole), projectTime(now) + 20, projectMidi(midi));
         }
 
-        displayNote() // TODO this should not be here
+        //displayNote() // TODO this should not be here
       }
       requestAnimationFrame(redraw);
 
+      /*
       function displayNote() {
         const w = noteDisplayEl.width;
         const h = noteDisplayEl.height;
         noteCtx.clearRect(0, 0, w, h);
-
+  
         const lastActiveSample = ms.slice().reverse().find(x => x.freq !== null)
         if (lastActiveSample) {
           const isActive = lastActiveSample.freq !== null && (now - lastActiveSample.t) < 300
@@ -205,7 +235,7 @@
           const rect_height = 30
           const rect_width = 200
           const x = w / 2 + (midi - midiWhole) * rect_width;
-
+  
           noteCtx.fillStyle = isActive ? '#000000' : '#888';
           noteCtx.font = "30px Arial";
           noteCtx.textAlign = "center";
@@ -217,7 +247,7 @@
           noteCtx.fillText(midiNoteName(midiWhole - 1), w / 2 - rect_width / 2 - 7, rect_top + 0.5 * rect_height);
           noteCtx.textAlign = "left";
           noteCtx.fillText(midiNoteName(midiWhole + 1), w / 2 + rect_width / 2 + 7, rect_top + 0.5 * rect_height);
-
+  
           // rect
           noteCtx.lineWidth = 0.5;
           noteCtx.strokeStyle = '#000000';
@@ -235,6 +265,7 @@
           noteCtx.stroke();
         }
       }
+      */
 
     }
   </script>
