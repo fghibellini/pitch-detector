@@ -1,6 +1,8 @@
 
 # Pitch Detector
 
+[[Live page](//fghibellini.com/pitch-detector/)]
+
 - currently uses: https://ml5js.org/reference/api-PitchDetection/
 
 ## Dependencies & Licenses
