@@ -1,6 +1,8 @@
 
 # Pitch Detector
 
+![preview](./preview.png)
+
 [[Live page](//fghibellini.com/pitch-detector/)]
 
 - currently uses: https://ml5js.org/reference/api-PitchDetection/
